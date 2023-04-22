@@ -5,23 +5,24 @@
  * \details LED character driver for led character device
  */
 
-#include <linux/module.h> /* Need for some macros such as module_init, module_exit */
-#include <linux/fs.h>  /* Need for functions such as allocation/release device number */
-#include <linux/device.h> /* Need for functions to creating device file; structure file_operations */
-#include <linux/cdev.h> /* Need for functions such as cdev_init, cdev_add */
-#include <linux/slab.h> /* Need for functions such as kmalloc, kfree */
-#include <linux/io.h> /* Need for functions such as ioremap, iounmap */
-#include<linux/uaccess.h>  /* Need for functions such as copy_to_user/copy_from_user */
+#include <linux/module.h>  /* Need for some macros such as module_init, module_exit */
+#include <linux/fs.h>      /* Need for functions such as allocation/release device number */
+#include <linux/device.h>  /* Need for functions to creating device file; structure file_operations */
+#include <linux/cdev.h>    /* Need for functions such as cdev_init, cdev_add */
+#include <linux/slab.h>    /* Need for functions such as kmalloc, kfree */
+#include <linux/io.h>      /* Need for functions such as ioremap, iounmap */
+#include <linux/uaccess.h> /* Need for functions such as copy_to_user/copy_from_user */
 
 #include "led.h"
 
 #define DRIVER_AUTHOR "NTPhong-Penguin-EmbeddedLinux"
-#define DRIVER_DESC   "LED Kernel Module"
-#define DRIVER_VERS   "1.0"
+#define DRIVER_DESC "LED Kernel Module"
+#define DRIVER_VERS "1.0"
 
-#define NPAGES  1
+#define NPAGES 1
 
-struct _vchar_drv {
+struct _vchar_drv
+{
     int size;
     char *kmalloc_ptr;
     dev_t dev_num;
@@ -47,7 +48,6 @@ static int __gpio_init(void)
     *(base_addr_led_red + GPIO_OE_OFFSET / 4) &= ~(1 << LED_RED);
 
     return 0;
-    
 }
 /* Hàm giải phóng thiết bị */
 static int __gpio_exit(void)
@@ -69,7 +69,7 @@ static void __set_output_led(int value)
         *(base_addr_led_red + GPIO_SETDATAOUT_OFFSET / 4) |= (1 << LED_RED);
         pr_info("Set GPIO Output HIGH\n");
     }
-    else 
+    else
     {
         *(base_addr_led_red + GPIO_CLEARDATAOUT_OFFSET / 4) |= (1 << LED_RED);
         pr_info("Set GPIO Output LOW\n");
@@ -83,20 +83,20 @@ static void __set_output_led(int value)
 
 /******************************** OS specific - START *******************************/
 
-static int      __init led_init(void);
-static void     __exit led_exit(void);
-static int      m_open(struct inode *inode, struct file *file);
-static int      m_release(struct inode *inode, struct file *file);
-static ssize_t  m_read(struct file *filp, char __user *user_buf, size_t size,loff_t *offset);
-static ssize_t  m_write(struct file *filp, const char *user_buf, size_t size, loff_t *offset);
+static int __init led_init(void);
+static void __exit led_exit(void);
+static int m_open(struct inode *inode, struct file *file);
+static int m_release(struct inode *inode, struct file *file);
+static ssize_t m_read(struct file *filp, char __user *user_buf, size_t size, loff_t *offset);
+static ssize_t m_write(struct file *filp, const char *user_buf, size_t size, loff_t *offset);
 
 static struct file_operations fops =
-{
-    .owner = THIS_MODULE,
-    .open = m_open,
-    .release = m_release,
-    .read = m_read,
-    .write = m_write,
+    {
+        .owner = THIS_MODULE,
+        .open = m_open,
+        .release = m_release,
+        .read = m_read,
+        .write = m_write,
 };
 
 /* Các hàm entry points */
@@ -119,9 +119,9 @@ static int m_release(struct inode *inode, struct file *file)
 static ssize_t m_read(struct file *filp, char __user *user_buffer, size_t size, loff_t *offset)
 {
     pr_info("System call read() called...!!!\n");
-    pr_info("[In function m_read]Before: Value of variables: offset = %d, led_drv.size = %d, size = %d\n", *((int *) offset), led_drv.size, (int) size);
+    pr_info("[In function m_read]Before: Value of variables: offset = %d, led_drv.size = %d, size = %d\n", *((int *)offset), led_drv.size, (int)size);
 
-    pr_info("[In function m_read]After: Value of variables: offset = %d, led_drv.size = %d, size = %d\n", *((int *) offset), led_drv.size, (int) size);
+    pr_info("[In function m_read]After: Value of variables: offset = %d, led_drv.size = %d, size = %d\n", *((int *)offset), led_drv.size, (int)size);
     return 0;
 }
 
@@ -129,26 +129,28 @@ static ssize_t m_read(struct file *filp, char __user *user_buffer, size_t size, 
 static ssize_t m_write(struct file *filp, const char __user *user_buffer, size_t size, loff_t *offset)
 {
     pr_info("System call write() called...!!!\n");
-    pr_info("[In function m_write]Before: Value of variables: offset = %d, led_drv.size = %d, size = %d\n", *((int *) offset), led_drv.size, (int) size);
+    pr_info("[In function m_write]Before: Value of variables: offset = %d, led_drv.size = %d, size = %d\n", *((int *)offset), led_drv.size, (int)size);
 
-	/* Copy from user buffer to mapped area */
-	memset(led_drv.kmalloc_ptr, 0, 1024);
-	if (copy_from_user(led_drv.kmalloc_ptr, user_buffer, size) != 0)
-		return -EFAULT;
+    /* Copy from user buffer to mapped area */
+    memset(led_drv.kmalloc_ptr, 0, 1024);
+    if (copy_from_user(led_drv.kmalloc_ptr, user_buffer, size) != 0)
+        return -EFAULT;
     if (0 == strcmp(led_drv.kmalloc_ptr, "0"))
     {
         __set_output_led(0);
-    } else if (0 == strcmp(led_drv.kmalloc_ptr, "1"))
+    }
+    else if (0 == strcmp(led_drv.kmalloc_ptr, "1"))
     {
         __set_output_led(1);
-    } else
+    }
+    else
     {
         pr_info("Unknown command\n");
     }
-    
+
     pr_info("Data from usr: %s", led_drv.kmalloc_ptr);
-    pr_info("[In function m_write]After: Value of variables: led_drv.size = %d, size = %d\n", led_drv.size, (int) size);
-	return size;
+    pr_info("[In function m_write]After: Value of variables: led_drv.size = %d, size = %d\n", led_drv.size, (int)size);
+    return size;
 }
 
 /* Driver Constructor */
@@ -176,16 +178,16 @@ static int __init led_init(void)
     /* 2.1 Creating struct class: device class (/sys/class) */
 
     /* Chức năng: Tạo ra một lớp các thiết bị có tên là [name] trong
-    *            thư mục /sys/class. Lớp này chứa liên kết tới thông
-    *            tin của các thiết bị cùng loại.
-    *  Tham số truyền vào:
-    *   *owner [I]: con trỏ trỏ tới module sở hữu lớp thiết bị này
-    *   *name  [I]: tên của lớp các thiết bị
-    *  Return:
-    *    Nếu thành công, thư mục có tên [name] được tạo ra trong
-    *    /sys/class. Hàm trả về một con trỏ trỏ tới biến cấu trúc class.
-    *    Nếu thất bại, trả về NULL
-    */
+     *            thư mục /sys/class. Lớp này chứa liên kết tới thông
+     *            tin của các thiết bị cùng loại.
+     *  Tham số truyền vào:
+     *   *owner [I]: con trỏ trỏ tới module sở hữu lớp thiết bị này
+     *   *name  [I]: tên của lớp các thiết bị
+     *  Return:
+     *    Nếu thành công, thư mục có tên [name] được tạo ra trong
+     *    /sys/class. Hàm trả về một con trỏ trỏ tới biến cấu trúc class.
+     *    Nếu thất bại, trả về NULL
+     */
     if ((led_drv.dev_class = class_create(THIS_MODULE, "class_led_device")) == NULL)
     {
         pr_err("Cannot create the struct class for my device\n");
@@ -195,19 +197,19 @@ static int __init led_init(void)
     /* 2.2 Creating device (/dev) */
 
     /*
-    * Chức năng: Tao ra các thông tin của một thiết bị cụ thể trên class
-    *            Khi có thông tin này, udev sẽ tạo ra một device file
-    *            tương ứng trong /dev
-    * Tham số truyền vào:
-    *    *cls    [I]: con trỏ trỏ tới lớp các thiết bị. Con trỏ này là kết
-    *                 quả của việc gọi hàm class_create
-    *    *parent [I]: con trỏ trỏ tới thiết bị cha của thiết bị này. Nếu
-    *                 thiết bị không có cha, ta truyền vào là NULL
-    *    devt    [I]: device number của thiết bị.
-    *    *drvdata[I]: dữ liệu bổ sung. Nếu không có, ta truyền vào là NULL.
-    *    *name   [I]: tên của thiết bị. udev sẽ tạo ra device file với tên
-    *                 này trong thư mục /dev
-    */
+     * Chức năng: Tao ra các thông tin của một thiết bị cụ thể trên class
+     *            Khi có thông tin này, udev sẽ tạo ra một device file
+     *            tương ứng trong /dev
+     * Tham số truyền vào:
+     *    *cls    [I]: con trỏ trỏ tới lớp các thiết bị. Con trỏ này là kết
+     *                 quả của việc gọi hàm class_create
+     *    *parent [I]: con trỏ trỏ tới thiết bị cha của thiết bị này. Nếu
+     *                 thiết bị không có cha, ta truyền vào là NULL
+     *    devt    [I]: device number của thiết bị.
+     *    *drvdata[I]: dữ liệu bổ sung. Nếu không có, ta truyền vào là NULL.
+     *    *name   [I]: tên của thiết bị. udev sẽ tạo ra device file với tên
+     *                 này trong thư mục /dev
+     */
     if ((device_create(led_drv.dev_class, NULL, led_drv.dev_num, NULL, "led_device")) == NULL)
     {
         pr_err("Cannot create my device\n");
@@ -277,5 +279,5 @@ module_exit(led_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR(DRIVER_AUTHOR);
-MODULE_DESCRIPTION(DRIVER_DESC);  
+MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_VERSION(DRIVER_VERS);
