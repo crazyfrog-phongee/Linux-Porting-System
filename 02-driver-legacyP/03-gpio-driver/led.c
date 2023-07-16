@@ -19,21 +19,6 @@
 #define DRIVER_DESC "LED Kernel Module"
 #define DRIVER_VERS "1.0"
 
-#define NPAGES 1
-
-struct gpios
-{
-    int numb;
-    int status;
-    int direction;
-};
-
-struct gpio_banks
-{
-    struct gpios gpios[32];
-    uint32_t __iomem *base_addr;
-};
-
 struct _vchar_drv
 {
     int size;
@@ -41,75 +26,145 @@ struct _vchar_drv
     dev_t dev_num;
     struct class *dev_class;
     struct cdev m_cdev;
-    struct gpio_banks banks[4];
+    GPIOBank_TypeDef m_banks[4];
 } led_drv;
 
-uint32_t __iomem *base_addr_led_red;
-uint32_t __iomem *base_addr;
-
 /****************************** Device specific - START *****************************/
-static int __gpio_init(struct gpio_banks *bank, int number);
+static int __gpio_init(GPIOBank_TypeDef *GPIOx, uint16_t GPIO_Bank, GPIO_InitTypeDef *GPIO_Init);
 static int __gpio_exit(void);
-static void __control_led(struct gpio_banks *bank, int number, int direct, int value);
+static void __gpio_write_pin(GPIOBank_TypeDef *GPIOx, uint32_t GPIO_Pin, GPIO_PinState PinState);
+static void __led_gpio_init(uint16_t GPIO_Num);
 
 /* Hàm khởi tạo thiết bị */
-static int __gpio_init(struct gpio_banks *bank, int number)
+static int __gpio_init(GPIOBank_TypeDef *GPIOx, uint16_t GPIO_Bank, GPIO_InitTypeDef *GPIO_Init)
 {
-    bank->gpios[number].status = GPIO_SET_OFF;
-    bank->gpios[number].direction = GPIO_SET_INPUT;
-    bank->base_addr = ioremap(GPIO_0_ADDR_BASE, GPIO_0_ADDR_SIZE);
-    if (!bank->base_addr)
+    /* Check the parameters */
+    // assert_param(IS_GPIO_ALL_INSTANCE(GPIOx));
+    // assert_param(IS_GPIO_PIN(GPIO_Init->Pin));
+    // assert_param(IS_GPIO_MODE(GPIO_Init->Mode));
+
+    /* Memory mappping */
+    if (!GPIOx->base_addr)
+    {
+        switch (GPIO_Bank)
+        {
+        case GPIO_BANK_0:
+            GPIOx->base_addr = ioremap(GPIO0_BASE, GPIO_ADDR_SIZE);
+            break;
+        
+        case GPIO_BANK_1:
+            GPIOx->base_addr = ioremap(GPIO1_BASE, GPIO_ADDR_SIZE);
+            break;
+        
+        case GPIO_BANK_2:
+            GPIOx->base_addr = ioremap(GPIO2_BASE, GPIO_ADDR_SIZE);
+            break;
+        
+        case GPIO_BANK_3:
+            GPIOx->base_addr = ioremap(GPIO3_BASE, GPIO_ADDR_SIZE);
+            break;
+
+        default:
+            break;
+        }
+    }
+
+    if (!GPIOx->base_addr)
         return -ENOMEM;
 
-    // *(led_drv.banks[GPIO_BANK_0].base_addr + GPIO_OE_OFFSET / 4) &= ~(1 << LED_RED);
+    /* Configure the port pins */
+    switch (GPIO_Init->Mode)
+    {
+    case GPIO_MODE_INPUT:
+        break;
+
+    case GPIO_MODE_OUTPUT_PP:
+        GPIOx->GPIO_Num[GPIO_Init->Pin].Mode = GPIO_Init->Mode;
+        *(GPIOx->base_addr + GPIO_OE_OFFSET / 4) &= ~(1 << GPIO_Init->Pin);
+        break;
+
+    default:
+        break;
+    }
+
     return 0;
+}
+
+static void __led_gpio_init(uint16_t GPIO_Num)
+{
+    uint8_t GPIO_Bank;
+    uint8_t GPIO_Pin;
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    GPIO_Bank = GPIO_Num / 32;
+    GPIO_Pin = GPIO_Num % 32;
+
+    switch (GPIO_Bank)
+    {
+    case GPIO_BANK_0:
+        /*Configure GPIO pin */
+        GPIO_InitStruct.Pin = GPIO_Pin;
+        GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+        printk("%s %d", __func__, __LINE__);
+        __gpio_init(&led_drv.m_banks[GPIO_BANK_0], GPIO_BANK_0, &GPIO_InitStruct);
+        pr_info("%s %d\n", __func__, __LINE__);
+
+        /*Configure GPIO pin Output Level */
+        __gpio_write_pin(&led_drv.m_banks[GPIO_BANK_0], GPIO_Pin, GPIO_PIN_SET);
+        pr_info("%s %d\n", __func__, __LINE__);
+        break;
+
+    case GPIO_BANK_1:
+        /*Configure GPIO pin */
+        GPIO_InitStruct.Pin = GPIO_Pin;
+        GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+        printk("%s %d", __func__, __LINE__);
+        __gpio_init(&led_drv.m_banks[GPIO_BANK_1], GPIO_BANK_1, &GPIO_InitStruct);
+        pr_info("%s %d\n", __func__, __LINE__);
+
+        /*Configure GPIO pin Output Level */
+        __gpio_write_pin(&led_drv.m_banks[GPIO_BANK_1], GPIO_Pin, GPIO_PIN_SET);
+        pr_info("%s %d\n", __func__, __LINE__);
+        break;
+
+    default:
+        break;
+    }
 }
 /* Hàm giải phóng thiết bị */
 static int __gpio_exit(void)
 {
-    // iounmap(base_addr_led_red);
+    if (led_drv.m_banks[GPIO_BANK_0].base_addr)
+        iounmap(led_drv.m_banks[GPIO_BANK_0].base_addr);
+    if (led_drv.m_banks[GPIO_BANK_1].base_addr)
+        iounmap(led_drv.m_banks[GPIO_BANK_1].base_addr);
+    if (led_drv.m_banks[GPIO_BANK_2].base_addr)
+        iounmap(led_drv.m_banks[GPIO_BANK_2].base_addr);
+    if (led_drv.m_banks[GPIO_BANK_3].base_addr)
+        iounmap(led_drv.m_banks[GPIO_BANK_3].base_addr);
     return 0;
 }
 /* Hàm đọc từ các thanh ghi dữ liệu của thiết bị */
 
 /* Hàm ghi vào các thanh ghi dữ liệu của thiết bị */
-static void __control_led(struct gpio_banks *bank, int number, int direct, int value)
+static void __gpio_write_pin(GPIOBank_TypeDef *GPIOx, uint32_t GPIO_Pin, GPIO_PinState PinState)
 {
-    // unsigned long temp = ioread32(base_addr_led_red + GPIO_SETDATAOUT_OFFSET);
+    /* Check the parameters */
+    // assert_param(IS_GPIO_ALL_INSTANCE(GPIOx));
+    // assert_param(IS_GPIO_PIN(GPIO_Pin));
+    // assert_param(IS_GPIO_PIN_ACTION(PinState));
 
-    // pr_info("Value of temp: %ld\n", temp);
-
-    if (direct == GPIO_SET_OUTPUT)
+    /* Configure GPIO pin Output level */
+    if (PinState == GPIO_PIN_SET)
     {
-        printk("%s %d", __func__, __LINE__);
-        *(bank->base_addr + GPIO_OE_OFFSET / 4) &= ~(1 << number);
-        printk("%s %d", __func__, __LINE__);
+        *(GPIOx->base_addr + GPIO_SETDATAOUT_OFFSET / 4) |= (1 << GPIO_Pin);
     }
-
-    printk("%s %d %d", __func__, __LINE__, value);
-
-    if (value == GPIO_SET_ON)
+    else
     {
-        printk("%s %d", __func__, __LINE__);
-        *(bank->base_addr + GPIO_SETDATAOUT_OFFSET / 4) |= (1 << number);
-        pr_info("Set GPIO Output HIGH\n");
-        printk("%s %d", __func__, __LINE__);
+        *(GPIOx->base_addr + GPIO_CLEARDATAOUT_OFFSET / 4) |= (1 << GPIO_Pin);
     }
-    else // GPIO_SET_OFF
-    {
-        printk("%s %d", __func__, __LINE__);
-    }
-    // if (value)
-    // {
-    //     *(base_addr_led_red + GPIO_SETDATAOUT_OFFSET / 4) |= (1 << LED_RED);
-    //     pr_info("Set GPIO Output HIGH\n");
-    // }
-    // else
-    // {
-    //     *(base_addr_led_red + GPIO_CLEARDATAOUT_OFFSET / 4) |= (1 << LED_RED);
-    //     pr_info("Set GPIO Output LOW\n");
-    // }
 }
+
 /* Hàm đọc từ các thanh ghi trạng thái của thiết bị */
 
 /* Hàm ghi vào các thanh ghi điều khiển của thiết bị */
@@ -163,49 +218,24 @@ static ssize_t m_read(struct file *filp, char __user *user_buffer, size_t size, 
 /* This function will be called when we write the Device file */
 static ssize_t m_write(struct file *filp, const char __user *user_buffer, size_t size, loff_t *offset)
 {
-    long gpio_num;
-    int index;
-    int number;
+    long GPIO_Num;
 
     pr_info("System call write() called...!!!\n");
-    
+
     /* Copy from user buffer to mapped area */
     memset(led_drv.kmalloc_ptr, 0, 1024);
     if (copy_from_user(led_drv.kmalloc_ptr, user_buffer, size) != 0)
         return -EFAULT;
 
-    if (kstrtol(led_drv.kmalloc_ptr, 10, &gpio_num))
+    if (kstrtol(led_drv.kmalloc_ptr, 10, &GPIO_Num))
     {
         pr_err("On error\n");
         return -1;
     }
 
-    index = gpio_num / 32;
-    number = gpio_num % 32;
-    switch (index)
-    {
-    case GPIO_BANK_0:
-        __gpio_init(&led_drv.banks[GPIO_BANK_0], number);
-        printk("%s %d", __func__, __LINE__);
-        __control_led(&led_drv.banks[GPIO_BANK_0], number, GPIO_SET_OUTPUT, GPIO_SET_ON);
-        printk("%s %d", __func__, __LINE__);
-        break;
+    __led_gpio_init(GPIO_Num);
 
-    case GPIO_BANK_1:
-        break;
-    case GPIO_BANK_2:
-        break;
-    case GPIO_BANK_3:
-        break;
-
-    default:
-        break;
-    }
-    led_drv.banks[gpio_num / 32].gpios.numb = gpio_num % 32;
-
-    pr_info("%s %d: Data from usr: %s %ld", __func__, __LINE__, led_drv.kmalloc_ptr, gpio_num);
-    pr_info("%s %d: Bank = %ld, Gpio_num_bank = %d\n", __func__, __LINE__, gpio_num / 32, led_drv.banks[gpio_num / 32].gpios.numb);
-    // pr_info("[In function m_write]After: Value of variables: led_drv.size = %d, size = %d\n", led_drv.size, (int)size);
+    pr_info("%s %d: Data from usr: %s %ld", __func__, __LINE__, led_drv.kmalloc_ptr, GPIO_Num);
     return size;
 }
 
@@ -230,6 +260,7 @@ static int __init led_init(void)
         pr_err("Failed to register device number dynamically\n");
         goto failed_register_devivce_num;
     }
+
     /* 2. Create device file */
     /* 2.1 Creating struct class: device class (/sys/class) */
 
@@ -318,7 +349,7 @@ static void __exit led_exit(void)
     /* Hủy đăng ký entry point với kernel */
     cdev_del(&led_drv.m_cdev);
     /* Giải phóng thiết bị vật lý */
-    __gpio_exit();
+    // __gpio_exit();
     /* Giải phóng bộ nhớ đã cấp phát cho cấu trúc dữ liệu của driver */
     kfree(led_drv.kmalloc_ptr);
     /* Xóa bỏ device file */

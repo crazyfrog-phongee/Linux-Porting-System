@@ -1,8 +1,8 @@
 /**
  * \file led.c
  * \author Nguyen Trong Phong
- * \date 4/18/2023
- * \details LED character driver for led character device
+ * \date 4/22/2023
+ * \details LED character driver for led character device using ioctl()
  */
 
 #include <linux/module.h>  /* Need for some macros such as module_init, module_exit */
@@ -12,27 +12,13 @@
 #include <linux/slab.h>    /* Need for functions such as kmalloc, kfree */
 #include <linux/io.h>      /* Need for functions such as ioremap, iounmap */
 #include <linux/uaccess.h> /* Need for functions such as copy_to_user/copy_from_user */
+#include <linux/delay.h>   /* Need for function such as msleep */
 
 #include "led.h"
 
 #define DRIVER_AUTHOR "NTPhong-Penguin-EmbeddedLinux"
-#define DRIVER_DESC "LED Kernel Module"
+#define DRIVER_DESC "LED Kernel Module using ioctl()"
 #define DRIVER_VERS "1.0"
-
-#define NPAGES 1
-
-struct gpios
-{
-    int numb;
-    int status;
-    int direction;
-};
-
-struct gpio_banks
-{
-    struct gpios gpios[32];
-    uint32_t __iomem *base_addr;
-};
 
 struct _vchar_drv
 {
@@ -41,74 +27,74 @@ struct _vchar_drv
     dev_t dev_num;
     struct class *dev_class;
     struct cdev m_cdev;
-    struct gpio_banks banks[4];
 } led_drv;
 
+struct led_config
+{
+    int duty_blink;
+    int times_blink;
+};
+
+led_config_t led_mod;
+
 uint32_t __iomem *base_addr_led_red;
-uint32_t __iomem *base_addr;
+uint32_t __iomem *base_addr_led_green;
 
 /****************************** Device specific - START *****************************/
-static int __gpio_init(struct gpio_banks *bank, int number);
+static int __gpio_init(void);
 static int __gpio_exit(void);
-static void __control_led(struct gpio_banks *bank, int number, int direct, int value);
+static void __set_output_led(int value);
+static void __set_mode_led(led_config_t *led_mod);
 
 /* Hàm khởi tạo thiết bị */
-static int __gpio_init(struct gpio_banks *bank, int number)
+static int __gpio_init(void)
 {
-    bank->gpios[number].status = GPIO_SET_OFF;
-    bank->gpios[number].direction = GPIO_SET_INPUT;
-    bank->base_addr = ioremap(GPIO_0_ADDR_BASE, GPIO_0_ADDR_SIZE);
-    if (!bank->base_addr)
+    base_addr_led_red = ioremap(GPIO_0_ADDR_BASE, GPIO_0_ADDR_SIZE);
+    if (!base_addr_led_red)
         return -ENOMEM;
 
-    // *(led_drv.banks[GPIO_BANK_0].base_addr + GPIO_OE_OFFSET / 4) &= ~(1 << LED_RED);
+    *(base_addr_led_red + GPIO_OE_OFFSET / 4) &= ~(1 << LED_RED);
+
     return 0;
 }
+
 /* Hàm giải phóng thiết bị */
 static int __gpio_exit(void)
 {
-    // iounmap(base_addr_led_red);
+    iounmap(base_addr_led_red);
     return 0;
 }
 /* Hàm đọc từ các thanh ghi dữ liệu của thiết bị */
 
 /* Hàm ghi vào các thanh ghi dữ liệu của thiết bị */
-static void __control_led(struct gpio_banks *bank, int number, int direct, int value)
+static void __set_output_led(int value)
 {
-    // unsigned long temp = ioread32(base_addr_led_red + GPIO_SETDATAOUT_OFFSET);
+    unsigned long temp = ioread32(base_addr_led_red + GPIO_SETDATAOUT_OFFSET);
 
-    // pr_info("Value of temp: %ld\n", temp);
+    pr_info("Value of temp: %ld\n", temp);
 
-    if (direct == GPIO_SET_OUTPUT)
+    if (value)
     {
-        printk("%s %d", __func__, __LINE__);
-        *(bank->base_addr + GPIO_OE_OFFSET / 4) &= ~(1 << number);
-        printk("%s %d", __func__, __LINE__);
-    }
-
-    printk("%s %d %d", __func__, __LINE__, value);
-
-    if (value == GPIO_SET_ON)
-    {
-        printk("%s %d", __func__, __LINE__);
-        *(bank->base_addr + GPIO_SETDATAOUT_OFFSET / 4) |= (1 << number);
+        *(base_addr_led_red + GPIO_SETDATAOUT_OFFSET / 4) |= (1 << LED_RED);
         pr_info("Set GPIO Output HIGH\n");
-        printk("%s %d", __func__, __LINE__);
     }
-    else // GPIO_SET_OFF
+    else
     {
-        printk("%s %d", __func__, __LINE__);
+        *(base_addr_led_red + GPIO_CLEARDATAOUT_OFFSET / 4) |= (1 << LED_RED);
+        pr_info("Set GPIO Output LOW\n");
     }
-    // if (value)
-    // {
-    //     *(base_addr_led_red + GPIO_SETDATAOUT_OFFSET / 4) |= (1 << LED_RED);
-    //     pr_info("Set GPIO Output HIGH\n");
-    // }
-    // else
-    // {
-    //     *(base_addr_led_red + GPIO_CLEARDATAOUT_OFFSET / 4) |= (1 << LED_RED);
-    //     pr_info("Set GPIO Output LOW\n");
-    // }
+}
+
+static void __set_mode_led(led_config_t *led_mod)
+{
+    int count;
+    for (count = 0; count < led_mod->times_blink; count++)
+    {
+        __set_output_led(1);
+        msleep(led_mod->duty_blink * 1000);
+        __set_output_led(0);
+        msleep(led_mod->duty_blink * 1000);
+    }
 }
 /* Hàm đọc từ các thanh ghi trạng thái của thiết bị */
 
@@ -124,6 +110,7 @@ static int m_open(struct inode *inode, struct file *file);
 static int m_release(struct inode *inode, struct file *file);
 static ssize_t m_read(struct file *filp, char __user *user_buf, size_t size, loff_t *offset);
 static ssize_t m_write(struct file *filp, const char *user_buf, size_t size, loff_t *offset);
+static long m_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 
 static struct file_operations fops =
     {
@@ -132,6 +119,7 @@ static struct file_operations fops =
         .release = m_release,
         .read = m_read,
         .write = m_write,
+        .unlocked_ioctl = m_ioctl,
 };
 
 /* Các hàm entry points */
@@ -163,50 +151,62 @@ static ssize_t m_read(struct file *filp, char __user *user_buffer, size_t size, 
 /* This function will be called when we write the Device file */
 static ssize_t m_write(struct file *filp, const char __user *user_buffer, size_t size, loff_t *offset)
 {
-    long gpio_num;
-    int index;
-    int number;
-
     pr_info("System call write() called...!!!\n");
-    
+    pr_info("[In function m_write]Before: Value of variables: offset = %d, led_drv.size = %d, size = %d\n", *((int *)offset), led_drv.size, (int)size);
+
     /* Copy from user buffer to mapped area */
     memset(led_drv.kmalloc_ptr, 0, 1024);
     if (copy_from_user(led_drv.kmalloc_ptr, user_buffer, size) != 0)
         return -EFAULT;
-
-    if (kstrtol(led_drv.kmalloc_ptr, 10, &gpio_num))
+    if (0 == strcmp(led_drv.kmalloc_ptr, "0"))
     {
-        pr_err("On error\n");
-        return -1;
+        __set_output_led(0);
+    }
+    else if (0 == strcmp(led_drv.kmalloc_ptr, "1"))
+    {
+        __set_output_led(1);
+    }
+    else
+    {
+        pr_info("Unknown command\n");
     }
 
-    index = gpio_num / 32;
-    number = gpio_num % 32;
-    switch (index)
+    pr_info("Data from usr: %s", led_drv.kmalloc_ptr);
+    pr_info("[In function m_write]After: Value of variables: led_drv.size = %d, size = %d\n", led_drv.size, (int)size);
+    return size;
+}
+
+/* This function will be called when we use ioctl() the Device file */
+static long m_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    switch (cmd)
     {
-    case GPIO_BANK_0:
-        __gpio_init(&led_drv.banks[GPIO_BANK_0], number);
-        printk("%s %d", __func__, __LINE__);
-        __control_led(&led_drv.banks[GPIO_BANK_0], number, GPIO_SET_OUTPUT, GPIO_SET_ON);
-        printk("%s %d", __func__, __LINE__);
+    case SET_ON_LED:
+        __set_output_led(1);
         break;
 
-    case GPIO_BANK_1:
+    case SET_OFF_LED:
+        __set_output_led(0);
         break;
-    case GPIO_BANK_2:
-        break;
-    case GPIO_BANK_3:
+
+    case SET_MODE_LED:
+        pr_info("Value of arg: %ld\n", arg);
+        if (copy_from_user(&led_mod, (led_config_t *)arg, sizeof(led_mod)))
+        {
+            pr_err("Copy from user on error\n");
+            break;
+        }
+        pr_info("Value elements of led_mod: duty_blink = %d, times_blink = %d\n", led_mod.duty_blink, led_mod.times_blink);
+        __set_mode_led(&led_mod);
+        pr_info("Set LED blinking mode successfully!\n");
         break;
 
     default:
+        pr_info("Unknown command\n");
         break;
     }
-    led_drv.banks[gpio_num / 32].gpios.numb = gpio_num % 32;
 
-    pr_info("%s %d: Data from usr: %s %ld", __func__, __LINE__, led_drv.kmalloc_ptr, gpio_num);
-    pr_info("%s %d: Bank = %ld, Gpio_num_bank = %d\n", __func__, __LINE__, gpio_num / 32, led_drv.banks[gpio_num / 32].gpios.numb);
-    // pr_info("[In function m_write]After: Value of variables: led_drv.size = %d, size = %d\n", led_drv.size, (int)size);
-    return size;
+    return 0;
 }
 
 /* Driver Constructor */
@@ -228,7 +228,7 @@ static int __init led_init(void)
     if (ret < 0)
     {
         pr_err("Failed to register device number dynamically\n");
-        goto failed_register_devivce_num;
+        goto failed_register_device_num;
     }
     /* 2. Create device file */
     /* 2.1 Creating struct class: device class (/sys/class) */
@@ -278,10 +278,8 @@ static int __init led_init(void)
         pr_err("Cannot allocate memory in kernel\n");
         goto rm_device;
     }
-
     /* 4. Khởi tạo thiết bị vật lý */
-    // __gpio_init();
-
+    __gpio_init();
     /* 5. Đăng ký các entry point với kernel */
     /* 5.1 Creating cdev structure */
     cdev_init(&led_drv.m_cdev, &fops);
@@ -306,7 +304,7 @@ rm_class:
     class_destroy(led_drv.dev_class);
 rm_device_num:
     unregister_chrdev_region(led_drv.dev_num, 1);
-failed_register_devivce_num:
+failed_register_device_num:
     return ret;
 }
 
